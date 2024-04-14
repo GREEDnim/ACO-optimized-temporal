@@ -185,6 +185,30 @@ func (db *taskQueueDB) UpdateState(
 	return err
 }
 
+
+func sortTasksByPriority(tasks []*persistencespb.AllocatedTaskInfo, priorityMap map[int64]int) []*persistencespb.AllocatedTaskInfo {
+    sort.Slice(tasks, func(i, j int) bool {
+        priorityI, existsI := priorityMap[tasks[i].TaskId]
+        priorityJ, existsJ := priorityMap[tasks[j].TaskId]
+
+        if !existsI && !existsJ {
+            return tasks[i].TaskId < tasks[j].TaskId
+        }
+
+        if !existsI {
+            return false
+        }
+
+        if !existsJ {
+            return true
+        }
+
+        return priorityI < priorityJ
+    })
+
+    return tasks
+}
+
 // CreateTasks creates a batch of given tasks for this task queue
 func (db *taskQueueDB) CreateTasks(
 	ctx context.Context,
@@ -192,6 +216,11 @@ func (db *taskQueueDB) CreateTasks(
 ) (*persistence.CreateTasksResponse, error) {
 	db.Lock()
 	defer db.Unlock()
+
+	rd := NewRouteDiscovery(tasks);
+    // Sort the tasks based on the priority map
+    priorityMap := rd.getPriorityMap()
+    sortedTasks := sortTasksByPriority(tasks, priorityMap)
 	return db.store.CreateTasks(
 		ctx,
 		&persistence.CreateTasksRequest{
@@ -199,7 +228,7 @@ func (db *taskQueueDB) CreateTasks(
 				Data:    db.cachedQueueInfo(),
 				RangeID: db.rangeID,
 			},
-			Tasks: tasks,
+			Tasks: sortedTasks,
 		})
 }
 
